@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import Image from "next/image"
 import { ImageCard } from "./image-card"
 import { CaseDetailSheet } from "./case-detail-sheet"
@@ -24,20 +24,31 @@ export function MasonryGrid({ items, isLoading = false, viewMode = "grid" }: Mas
   const [displayedItems, setDisplayedItems] = useState<CaseItem[]>([])
   const [loadingMore, setLoadingMore] = useState(false)
 
-  useEffect(() => {
-    setDisplayedItems(items.slice(0, ITEMS_PER_PAGE))
+  // 根据 id 去重，id 相同时保留首次出现的项；若无 id 则回退到 title 去重
+  const uniqueItems = useMemo(() => {
+    const seen = new Set<string | number>()
+    return items.filter((item) => {
+      const key = item.id ?? item.title
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
   }, [items])
+
+  useEffect(() => {
+    setDisplayedItems(uniqueItems.slice(0, ITEMS_PER_PAGE))
+  }, [uniqueItems])
 
   const loadMore = useCallback(() => {
     if (loadingMore) return
     setLoadingMore(true)
     setTimeout(() => {
       const currentCount = displayedItems.length
-      const nextItems = items.slice(0, currentCount + ITEMS_PER_PAGE)
+      const nextItems = uniqueItems.slice(0, currentCount + ITEMS_PER_PAGE)
       setDisplayedItems(nextItems)
       setLoadingMore(false)
     }, 400)
-  }, [items, displayedItems.length, loadingMore])
+  }, [uniqueItems, displayedItems.length, loadingMore])
 
   const handleItemClick = (item: CaseItem) => {
     setSelectedItem(item)
@@ -64,7 +75,7 @@ export function MasonryGrid({ items, isLoading = false, viewMode = "grid" }: Mas
   }
 
   // Empty state
-  if (items.length === 0) {
+  if (uniqueItems.length === 0) {
     return (
       <div className="flex min-h-[400px] flex-col items-center justify-center text-center">
         <div className="mb-4 rounded-full bg-slate-100 p-6">
@@ -88,7 +99,7 @@ export function MasonryGrid({ items, isLoading = false, viewMode = "grid" }: Mas
     )
   }
 
-  const hasMore = displayedItems.length < items.length
+  const hasMore = displayedItems.length < uniqueItems.length
 
   const getScoreColor = (score: number) => {
     if (score >= 90) return "text-emerald-600"
@@ -176,7 +187,7 @@ export function MasonryGrid({ items, isLoading = false, viewMode = "grid" }: Mas
                 <ChevronDown className="h-4 w-4" />
                 加载更多
                 <span className="text-slate-400">
-                  ({displayedItems.length} / {items.length})
+                  ({displayedItems.length} / {uniqueItems.length})
                 </span>
               </>
             )}
