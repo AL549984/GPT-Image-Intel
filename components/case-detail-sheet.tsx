@@ -25,6 +25,7 @@ interface CaseDetailSheetProps {
 
 export function CaseDetailSheet({ item, open, onOpenChange }: CaseDetailSheetProps) {
   const [copied, setCopied] = useState(false)
+  const [imgError, setImgError] = useState(false)
   const { toast } = useToast()
 
   if (!item) return null
@@ -86,25 +87,34 @@ export function CaseDetailSheet({ item, open, onOpenChange }: CaseDetailSheetPro
           {/* Image - original aspect ratio */}
           <div className="space-y-2">
             <div className="overflow-hidden rounded-lg border border-slate-200/80">
-              <Image
-                src={item.imageUrl}
-                alt={item.title}
-                width={800}
-                height={600}
-                className="h-auto w-full object-contain"
-                sizes="(max-width: 640px) 100vw, 600px"
-                priority
-              />
+              {item.imageUrl && item.imageUrl.trim() !== "" && !imgError ? (
+                <Image
+                  src={item.imageUrl}
+                  alt={item.title}
+                  width={800}
+                  height={600}
+                  className="h-auto w-full object-contain"
+                  sizes="(max-width: 640px) 100vw, 600px"
+                  priority
+                  onError={() => setImgError(true)}
+                />
+              ) : (
+                <div className="flex h-[200px] w-full items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 text-slate-400">
+                  <span className="text-sm">暂无图片</span>
+                </div>
+              )}
             </div>
-            <a
-              href={item.imageUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs text-slate-400 transition-colors hover:text-slate-600"
-            >
-              <ZoomIn className="h-3.5 w-3.5" />
-              查看原图
-            </a>
+            {item.imageUrl && item.imageUrl.trim() !== "" && !imgError && (
+              <a
+                href={item.imageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-slate-400 transition-colors hover:text-slate-600"
+              >
+                <ZoomIn className="h-3.5 w-3.5" />
+                查看原图
+              </a>
+            )}
           </div>
 
           {/* Scores */}
@@ -174,7 +184,9 @@ export function CaseDetailSheet({ item, open, onOpenChange }: CaseDetailSheetPro
               <MessageSquareQuote className="h-4 w-4 text-blue-500" />
               AI 审计详情
             </h4>
-            <p className="text-sm leading-relaxed text-slate-600">{item.auditDetail}</p>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-600">
+              {item.auditDetail || '正在抓取 AI 审计深度分析...'}
+            </p>
           </div>
 
           {/* Actions */}

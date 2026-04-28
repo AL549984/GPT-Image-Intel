@@ -15,7 +15,8 @@ interface ImageCardProps {
 
 export function ImageCard({ item, onClick }: ImageCardProps) {
   const [isLoading, setIsLoading] = useState(true)
-  const hasImage = item.imageUrl && item.imageUrl.trim() !== ""
+  const [imgError, setImgError] = useState(false)
+  const hasImage = !!(item.imageUrl && item.imageUrl.trim() !== "") && !imgError
 
   const getScoreColor = (score: number) => {
     if (score >= 90) return "bg-emerald-50 text-emerald-700"
@@ -53,6 +54,7 @@ export function ImageCard({ item, onClick }: ImageCardProps) {
               }`}
               sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
               onLoad={() => setIsLoading(false)}
+              onError={() => setImgError(true)}
             />
           </>
         )}

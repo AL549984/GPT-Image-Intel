@@ -24,6 +24,7 @@ interface CaseModalProps {
 
 export function CaseModal({ item, open, onOpenChange }: CaseModalProps) {
   const [copied, setCopied] = useState(false)
+  const [imgError, setImgError] = useState(false)
   const { toast } = useToast()
 
   if (!item) return null
@@ -77,14 +78,21 @@ export function CaseModal({ item, open, onOpenChange }: CaseModalProps) {
 
         {/* 顶部：大图展示 + 质量标签 */}
         <div className="relative aspect-video w-full overflow-hidden rounded-t-lg">
-          <Image
-            src={item.imageUrl}
-            alt={item.title}
-            fill
-            className="object-cover"
-            sizes="(max-width: 1024px) 100vw, 896px"
-            priority
-          />
+          {item.imageUrl && item.imageUrl.trim() !== "" && !imgError ? (
+            <Image
+              src={item.imageUrl}
+              alt={item.title}
+              fill
+              className="object-cover"
+              sizes="(max-width: 1024px) 100vw, 896px"
+              priority
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 text-slate-400">
+              <span className="text-sm">暂无图片</span>
+            </div>
+          )}
           {/* 质量标签 - 悬浮在图片上方 */}
           <div className="absolute left-4 top-4">
             <QualityBadge qualityTag={item.qualityTag} />
@@ -181,8 +189,8 @@ export function CaseModal({ item, open, onOpenChange }: CaseModalProps) {
               <MessageSquareQuote className="h-4 w-4 text-primary" />
               AI 审计详情 · 专家点评
             </h4>
-            <p className="text-sm leading-relaxed text-foreground/80">
-              {item.auditDetail}
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
+              {item.auditDetail || '正在抓取 AI 审计深度分析...'}
             </p>
           </div>
 

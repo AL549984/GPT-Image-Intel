@@ -48,13 +48,25 @@ export interface CaseItem {
   createdAt?: string
 }
 
+// 将图片字段补全为完整的 Supabase Storage Public URL
+// 如果 image_url 已经是完整 URL（以 http 开头）直接返回；
+// 否则视为 Storage bucket 中的文件路径，自动拼接公开访问地址。
+function getFullImageUrl(raw: string | null | undefined): string {
+  if (!raw || raw.trim() === "") return ""
+  const trimmed = raw.trim()
+  // 已经是完整 URL
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed
+  // 兜底拼接 Supabase Storage 公开 URL（bucket 名称 = images）
+  return `${supabaseUrl}/storage/v1/object/public/images/${trimmed}`
+}
+
 // 将数据库行转换为前端格式
 export function transformRowToCaseItem(row: PromptLibraryRow): CaseItem {
   return {
     id: String(row.id),
     title: row.title || "未命名案例",
     auditStatus: row.audit_status || "待审核",
-    imageUrl: row.image_url || "",
+    imageUrl: getFullImageUrl(row.image_url),
     category: row.category || "其他创意应用",
     prompt: row.prompt || "",
     textScore: row.text_score ?? 0,
