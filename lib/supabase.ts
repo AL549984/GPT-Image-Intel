@@ -69,12 +69,12 @@ export function transformRowToCaseItem(row: PromptLibraryRow): CaseItem {
   }
 }
 
-// 获取所有审计通过的案例 (默认按 total_score 降序)
+// 获取所有案例 (默认按 total_score 降序)
+// TODO: 暂时移除 audit_status === '通过' 的过滤，方便核对全部数据
 export async function fetchApprovedCases(): Promise<CaseItem[]> {
   const { data, error } = await supabase
     .from("prompts_library")
     .select("*")
-    .eq("audit_status", "通过")
     .order("total_score", { ascending: false })
 
   if (error) {
@@ -82,6 +82,7 @@ export async function fetchApprovedCases(): Promise<CaseItem[]> {
     return []
   }
 
+  console.log('Total fetched:', (data || []).length)
   return (data || []).map(transformRowToCaseItem)
 }
 
@@ -93,12 +94,10 @@ export async function fetchCaseStats(): Promise<{
   const { count: total, error: totalError } = await supabase
     .from("prompts_library")
     .select("*", { count: "exact", head: true })
-    .eq("audit_status", "通过")
 
   const { count: highQuality, error: hqError } = await supabase
     .from("prompts_library")
     .select("*", { count: "exact", head: true })
-    .eq("audit_status", "通过")
     .gte("total_score", 90)
 
   if (totalError || hqError) {

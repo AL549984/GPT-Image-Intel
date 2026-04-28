@@ -53,71 +53,68 @@ export default function HomePage() {
     return () => clearTimeout(timer)
   }, [searchQuery])
 
-  const filteredCases = useMemo(() => {
-    const query = debouncedQuery.toLowerCase().trim()
-
-    let results = cases.filter((item) => {
-      // Category filter (empty = all)
-      const categoryMatch =
-        selectedCategories.length === 0 || selectedCategories.includes(item.category)
-      // Prompt filter
-      const hasPrompt = item.prompt && item.prompt.trim() !== ""
-      const promptMatch = !showOnlyWithPrompt || hasPrompt
-      // Search filter
-      const searchMatch =
-        query === "" ||
-        item.title.toLowerCase().includes(query) ||
-        item.prompt.toLowerCase().includes(query)
-      // Score filter
-      const scoreMatch = item.totalScore >= minScore
-      // Date filter
-      let dateMatch = true
-      if (dateRange !== "all" && item.createdAt) {
-        const now = new Date()
-        const created = new Date(item.createdAt)
-        const diffDays =
-          (now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24)
-        if (dateRange === "7d") dateMatch = diffDays <= 7
-        else if (dateRange === "30d") dateMatch = diffDays <= 30
-        else if (dateRange === "90d") dateMatch = diffDays <= 90
-      }
-
-      return categoryMatch && promptMatch && searchMatch && scoreMatch && dateMatch
-    })
-
-    // Sort
-    if (sortOrder === "desc") {
-      results = [...results].sort((a, b) => b.totalScore - a.totalScore)
-    } else if (sortOrder === "asc") {
-      results = [...results].sort((a, b) => a.totalScore - b.totalScore)
+  // 🔍 调试：确认数据源拿到了多少条
+  useEffect(() => {
+    console.log(`[DATA] cases 数组长度: ${cases.length}`)
+    if (cases.length > 0) {
+      console.log('[DATA] 前5条:', cases.slice(0, 5).map(c => ({ id: c.id, title: c.title, category: c.category, totalScore: c.totalScore, imageUrl: c.imageUrl })))
     }
+  }, [cases])
 
-    return results
-  }, [
-    cases,
-    selectedCategories,
-    showOnlyWithPrompt,
-    debouncedQuery,
-    sortOrder,
-    minScore,
-    dateRange,
-  ])
+  // 动态提取数据库中所有不重复的分类，永远与数据库保持一致
+  const dynamicCategories = useMemo(() => {
+    const cats = [...new Set(cases.map(c => c.category).filter(Boolean))].sort()
+    console.log('[CATEGORIES] 数据库实际分类:', cats)
+    return cats
+  }, [cases])
+
+  const filteredCases = useMemo(() => {
+    console.log('🚀 开始执行最终渲染过滤...', { 选中数: selectedCategories.length, 数据总数: cases.length });
+
+    const matched = cases.filter(item => {
+      // 1. 如果没选任何分类，直接放行全部（修复默认 0 的问题）
+      if (selectedCategories.length === 0) return true;
+
+      // 2. 暴力归一化比对（修复空格/斜杠问题）
+      const normalize = (s: string) => (s || "").replace(/\s+/g, '').replace(/／/g, '/');
+      const itemCat = normalize(item.category);
+
+      return selectedCategories.some(sel => normalize(sel) === itemCat);
+    });
+
+    // 强制按 id 去重，防止重复渲染
+    const seen = new Set<string>();
+    const uniqueCases = matched.filter(item => {
+      const key = item.id || item.title;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    console.log('最终渲染条数:', uniqueCases.length);
+    return uniqueCases;
+  }, [cases, selectedCategories])
+
+  // 使用 Map 以标题为 Key 进行去重，确保 UI 上每个案例只出现一次
+  const uniqueCases = Array.from(
+    new Map(filteredCases.map(item => [item.title, item])).values()
+  );
 
   // Stats
   const stats = useMemo(() => {
-    const total = filteredCases.length
+    const total = uniqueCases.length
     const avgScore =
       total > 0
         ? Math.round(
-            filteredCases.reduce((sum, item) => sum + item.totalScore, 0) /
+            uniqueCases.reduce((sum, item) => sum + item.totalScore, 0) /
               total
           )
         : 0
-    const highQuality = filteredCases.filter(
+    const highQuality = uniqueCases.filter(
       (item) => item.totalScore >= 90
     ).length
     return { total, avgScore, highQuality }
-  }, [filteredCases])
+  }, [uniqueCases])
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -187,6 +184,7 @@ export default function HomePage() {
             viewMode={viewMode}
             onViewModeChange={setViewMode}
             isSearching={isPending}
+            categoryOptions={dynamicCategories}
           />
         </div>
       </header>
@@ -240,7 +238,7 @@ export default function HomePage() {
 
         {/* Grid */}
         <MasonryGrid
-          items={filteredCases}
+          items={uniqueCases}
           isLoading={isLoading || isPending}
           viewMode={viewMode}
         />

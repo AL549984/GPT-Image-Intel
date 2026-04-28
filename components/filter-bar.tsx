@@ -24,7 +24,7 @@ import {
   X,
   Sparkles,
 } from "lucide-react"
-import { categories, type SortOrder } from "@/lib/mock-data"
+import { type SortOrder } from "@/lib/mock-data"
 import { cn } from "@/lib/utils"
 
 interface FilterBarProps {
@@ -43,6 +43,7 @@ interface FilterBarProps {
   viewMode: "grid" | "list"
   onViewModeChange: (mode: "grid" | "list") => void
   isSearching?: boolean
+  categoryOptions?: string[]
 }
 
 const scorePresets = [
@@ -58,8 +59,6 @@ const datePresets = [
   { label: "最近 30 天", value: "30d" },
   { label: "最近 90 天", value: "90d" },
 ]
-
-const categoryOptions = categories.filter((c) => c !== "全部")
 
 export function FilterBar({
   searchQuery,
@@ -77,6 +76,7 @@ export function FilterBar({
   viewMode,
   onViewModeChange,
   isSearching = false,
+  categoryOptions = [],
 }: FilterBarProps) {
   const getSortIcon = () => {
     if (sortOrder === "desc") return <ArrowDown className="h-4 w-4" />

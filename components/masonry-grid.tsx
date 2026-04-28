@@ -138,14 +138,20 @@ export function MasonryGrid({ items, isLoading = false, viewMode = "grid" }: Mas
               className="grid cursor-pointer grid-cols-[64px_1fr_120px_80px_100px_100px] items-center gap-4 border-b border-slate-100 px-4 py-3 transition-colors last:border-b-0 hover:bg-slate-50"
               onClick={() => handleItemClick(item)}
             >
-              <div className="h-10 w-16 overflow-hidden rounded-lg">
-                <Image
-                  src={item.imageUrl}
-                  alt={item.title}
-                  width={64}
-                  height={40}
-                  className="h-full w-full object-cover"
-                />
+              <div className="h-10 w-16 overflow-hidden rounded-lg bg-slate-100">
+                {item.imageUrl && item.imageUrl.trim() !== "" ? (
+                  <Image
+                    src={item.imageUrl}
+                    alt={item.title}
+                    width={64}
+                    height={40}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-slate-400">
+                    <span className="text-[10px]">无图</span>
+                  </div>
+                )}
               </div>
               <span className="truncate text-sm font-medium text-slate-800">
                 {item.title}

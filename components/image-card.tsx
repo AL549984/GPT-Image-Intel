@@ -5,6 +5,7 @@ import Image from "next/image"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { QualityBadge } from "@/components/quality-badge"
+import { ImageOff } from "lucide-react"
 import type { CaseItem } from "@/lib/mock-data"
 
 interface ImageCardProps {
@@ -14,6 +15,7 @@ interface ImageCardProps {
 
 export function ImageCard({ item, onClick }: ImageCardProps) {
   const [isLoading, setIsLoading] = useState(true)
+  const hasImage = item.imageUrl && item.imageUrl.trim() !== ""
 
   const getScoreColor = (score: number) => {
     if (score >= 90) return "bg-emerald-50 text-emerald-700"
@@ -29,20 +31,31 @@ export function ImageCard({ item, onClick }: ImageCardProps) {
     >
       {/* Clean image - no overlay text */}
       <div className="relative overflow-hidden">
-        {isLoading && (
-          <Skeleton className="absolute inset-0 z-10 h-full min-h-[200px] w-full" />
+        {!hasImage ? (
+          <div className="flex h-[200px] w-full flex-col items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 text-slate-400">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/60">
+              <ImageOff className="h-6 w-6" />
+            </div>
+            <span className="mt-2 text-xs font-medium">暂无图片</span>
+          </div>
+        ) : (
+          <>
+            {isLoading && (
+              <Skeleton className="absolute inset-0 z-10 h-full min-h-[200px] w-full" />
+            )}
+            <Image
+              src={item.imageUrl}
+              alt={item.title}
+              width={400}
+              height={300}
+              className={`h-auto w-full object-cover transition-transform duration-500 group-hover:scale-[1.02] ${
+                isLoading ? "opacity-0" : "opacity-100"
+              }`}
+              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+              onLoad={() => setIsLoading(false)}
+            />
+          </>
         )}
-        <Image
-          src={item.imageUrl}
-          alt={item.title}
-          width={400}
-          height={300}
-          className={`h-auto w-full object-cover transition-transform duration-500 group-hover:scale-[1.02] ${
-            isLoading ? "opacity-0" : "opacity-100"
-          }`}
-          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-          onLoad={() => setIsLoading(false)}
-        />
       </div>
 
       {/* Info below image */}
