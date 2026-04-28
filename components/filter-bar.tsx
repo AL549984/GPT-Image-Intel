@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import { Slider } from "@/components/ui/slider"
 import {
   Popover,
   PopoverContent,
@@ -32,8 +33,8 @@ interface FilterBarProps {
   onSearchChange: (value: string) => void
   sortOrder: SortOrder
   onSortOrderChange: (order: SortOrder) => void
-  minScore: number
-  onMinScoreChange: (score: number) => void
+  scoreRange: [number, number]
+  onScoreRangeChange: (range: [number, number]) => void
   dateRange: string
   onDateRangeChange: (range: string) => void
   selectedCategories: string[]
@@ -46,12 +47,7 @@ interface FilterBarProps {
   categoryOptions?: string[]
 }
 
-const scorePresets = [
-  { label: "全部", value: 0 },
-  { label: "90+", value: 90 },
-  { label: "80+", value: 80 },
-  { label: "70+", value: 70 },
-]
+
 
 const datePresets = [
   { label: "全部时间", value: "all" },
@@ -65,8 +61,8 @@ export function FilterBar({
   onSearchChange,
   sortOrder,
   onSortOrderChange,
-  minScore,
-  onMinScoreChange,
+  scoreRange,
+  onScoreRangeChange,
   dateRange,
   onDateRangeChange,
   selectedCategories,
@@ -107,15 +103,15 @@ export function FilterBar({
   // Count active filters
   const activeFilterCount = useMemo(() => {
     let count = 0
-    if (minScore > 0) count++
+    if (scoreRange[0] > 0 || scoreRange[1] < 100) count++
     if (dateRange !== "all") count++
     if (selectedCategories.length > 0) count++
     if (showOnlyWithPrompt) count++
     return count
-  }, [minScore, dateRange, selectedCategories, showOnlyWithPrompt])
+  }, [scoreRange, dateRange, selectedCategories, showOnlyWithPrompt])
 
   const resetFilters = () => {
-    onMinScoreChange(0)
+    onScoreRangeChange([0, 100])
     onDateRangeChange("all")
     onCategoriesChange([])
     onPromptFilterChange(false)
@@ -181,23 +177,27 @@ export function FilterBar({
             </div>
 
             {/* Score Range */}
-            <div className="space-y-2 border-t border-slate-100 pt-3">
-              <label className="text-xs font-medium text-slate-500">评分区间</label>
-              <div className="flex flex-wrap gap-1.5">
-                {scorePresets.map((preset) => (
-                  <button
-                    key={preset.value}
-                    onClick={() => onMinScoreChange(preset.value)}
-                    className={cn(
-                      "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-                      minScore === preset.value
-                        ? "bg-slate-900 text-white"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                    )}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
+            <div className="space-y-3 border-t border-slate-100 pt-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-slate-500">评分区间</label>
+                <span className="text-xs font-medium text-slate-700">
+                  {scoreRange[0]} – {scoreRange[1]}
+                </span>
+              </div>
+              <Slider
+                min={0}
+                max={100}
+                step={1}
+                value={scoreRange}
+                onValueChange={(val) => onScoreRangeChange(val as [number, number])}
+                className="w-full"
+              />
+              <div className="flex justify-between text-[10px] text-slate-400">
+                <span>0</span>
+                <span>25</span>
+                <span>50</span>
+                <span>75</span>
+                <span>100</span>
               </div>
             </div>
 
@@ -313,15 +313,15 @@ export function FilterBar({
       {/* Active Filter Chips */}
       {activeFilterCount > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 sm:hidden">
-          {minScore > 0 && (
+          {(scoreRange[0] > 0 || scoreRange[1] < 100) && (
             <Badge
               variant="secondary"
               className="gap-1 bg-blue-50 text-xs text-blue-700"
             >
-              {minScore}+ 分
+              {scoreRange[0]}–{scoreRange[1]} 分
               <X
                 className="h-3 w-3 cursor-pointer"
-                onClick={() => onMinScoreChange(0)}
+                onClick={() => onScoreRangeChange([0, 100])}
               />
             </Badge>
           )}

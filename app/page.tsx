@@ -5,14 +5,20 @@ import { FilterBar } from "@/components/filter-bar"
 import { MasonryGrid } from "@/components/masonry-grid"
 import { type SortOrder } from "@/lib/mock-data"
 import { fetchApprovedCases, type CaseItem } from "@/lib/supabase"
-import { Database, RefreshCw } from "lucide-react"
+import { Database, RefreshCw, Settings, LogIn, UserPlus, LogOut, User, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useUserRole } from "@/contexts/user-role-context"
+import { useAuth } from "@/hooks/use-auth"
+import Link from "next/link"
 
 export default function HomePage() {
+  const { isAdmin } = useUserRole()
+  const { user, isLoggedIn, signOut, requireAuth } = useAuth()
+
   // Filter state
   const [searchQuery, setSearchQuery] = useState("")
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc")
-  const [minScore, setMinScore] = useState(0)
+  const [scoreRange, setScoreRange] = useState<[number, number]>([0, 100])
   const [dateRange, setDateRange] = useState("all")
   const [selectedCategories, setSelectedCategories] = useState<string[]>([])
   const [showOnlyWithPrompt, setShowOnlyWithPrompt] = useState(false)
@@ -72,10 +78,22 @@ export default function HomePage() {
     console.log('🚀 开始执行最终渲染过滤...', { 选中数: selectedCategories.length, 数据总数: cases.length });
 
     const matched = cases.filter(item => {
-      // 1. 如果没选任何分类，直接放行全部（修复默认 0 的问题）
+      // 0. 搜索关键词过滤（匹配标题、分类、prompt）
+      if (debouncedQuery) {
+        const q = debouncedQuery.toLowerCase();
+        const haystack = `${item.title} ${item.category} ${item.prompt}`.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+
+      // 1. 评分区间过滤
+      if (scoreRange[0] > 0 || scoreRange[1] < 100) {
+        if (item.totalScore < scoreRange[0] || item.totalScore > scoreRange[1]) return false;
+      }
+
+      // 2. 如果没选任何分类，直接放行全部
       if (selectedCategories.length === 0) return true;
 
-      // 2. 暴力归一化比对（修复空格/斜杠问题）
+      // 3. 暴力归一化比对（修复空格/斜杠问题）
       const normalize = (s: string) => (s || "").replace(/\s+/g, '').replace(/／/g, '/');
       const itemCat = normalize(item.category);
 
@@ -93,7 +111,7 @@ export default function HomePage() {
 
     console.log('最终渲染条数:', uniqueCases.length);
     return uniqueCases;
-  }, [cases, selectedCategories])
+  }, [cases, selectedCategories, scoreRange, debouncedQuery])
 
   // 使用 Map 以标题为 Key 进行去重，确保 UI 上每个案例只出现一次
   const uniqueCases = Array.from(
@@ -153,6 +171,19 @@ export default function HomePage() {
                   </div>
                 )}
               </div>
+              {isAdmin && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  asChild
+                  className="h-8 gap-1.5 text-xs text-slate-600 hover:text-slate-900"
+                >
+                  <Link href="/admin">
+                    <Settings className="h-3.5 w-3.5" />
+                    管理后台
+                  </Link>
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
@@ -165,6 +196,69 @@ export default function HomePage() {
                   className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`}
                 />
               </Button>
+
+              {/* 登录 / 注册 / 用户信息 */}
+              {isLoggedIn ? (
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    asChild
+                    className="h-8 gap-1.5 text-xs bg-slate-900 text-white hover:bg-slate-800"
+                  >
+                    <Link href="/submit">
+                      <Plus className="h-3.5 w-3.5" />
+                      提交案例
+                    </Link>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    asChild
+                    className="h-8 gap-1.5 text-xs text-slate-600 hover:text-slate-900"
+                  >
+                    <Link href="/profile">
+                      <User className="h-3.5 w-3.5" />
+                      我的空间
+                    </Link>
+                  </Button>
+                  <span className="hidden text-xs text-slate-500 sm:inline">
+                    {user?.email}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={signOut}
+                    className="h-8 gap-1.5 text-xs text-slate-500 hover:text-slate-700"
+                  >
+                    <LogOut className="h-3.5 w-3.5" />
+                    退出
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    asChild
+                    className="h-8 gap-1.5 text-xs"
+                  >
+                    <Link href="/login">
+                      <LogIn className="h-3.5 w-3.5" />
+                      登录
+                    </Link>
+                  </Button>
+                  <Button
+                    size="sm"
+                    asChild
+                    className="h-8 gap-1.5 text-xs bg-slate-900 text-white hover:bg-slate-800"
+                  >
+                    <Link href="/login?mode=register">
+                      <UserPlus className="h-3.5 w-3.5" />
+                      注册
+                    </Link>
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -173,8 +267,8 @@ export default function HomePage() {
             onSearchChange={setSearchQuery}
             sortOrder={sortOrder}
             onSortOrderChange={setSortOrder}
-            minScore={minScore}
-            onMinScoreChange={setMinScore}
+            scoreRange={scoreRange}
+            onScoreRangeChange={setScoreRange}
             dateRange={dateRange}
             onDateRangeChange={setDateRange}
             selectedCategories={selectedCategories}
@@ -241,6 +335,7 @@ export default function HomePage() {
           items={uniqueCases}
           isLoading={isLoading || isPending}
           viewMode={viewMode}
+          requireAuth={requireAuth}
         />
       </div>
 

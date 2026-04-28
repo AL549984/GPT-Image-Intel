@@ -14,11 +14,12 @@ interface MasonryGridProps {
   items: CaseItem[]
   isLoading?: boolean
   viewMode?: "grid" | "list"
+  requireAuth?: () => boolean
 }
 
 const ITEMS_PER_PAGE = 20
 
-export function MasonryGrid({ items, isLoading = false, viewMode = "grid" }: MasonryGridProps) {
+export function MasonryGrid({ items, isLoading = false, viewMode = "grid", requireAuth }: MasonryGridProps) {
   const [selectedItem, setSelectedItem] = useState<CaseItem | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [displayedItems, setDisplayedItems] = useState<CaseItem[]>([])
@@ -41,6 +42,7 @@ export function MasonryGrid({ items, isLoading = false, viewMode = "grid" }: Mas
 
   const loadMore = useCallback(() => {
     if (loadingMore) return
+    if (requireAuth && !requireAuth()) return
     setLoadingMore(true)
     setTimeout(() => {
       const currentCount = displayedItems.length
@@ -48,9 +50,10 @@ export function MasonryGrid({ items, isLoading = false, viewMode = "grid" }: Mas
       setDisplayedItems(nextItems)
       setLoadingMore(false)
     }, 400)
-  }, [uniqueItems, displayedItems.length, loadingMore])
+  }, [uniqueItems, displayedItems.length, loadingMore, requireAuth])
 
   const handleItemClick = (item: CaseItem) => {
+    if (requireAuth && !requireAuth()) return
     setSelectedItem(item)
     setSheetOpen(true)
   }

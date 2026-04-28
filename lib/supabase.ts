@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js"
+import { createBrowserClient } from "@supabase/ssr"
 
 // Supabase 配置
 // 注意：NEXT_PUBLIC_SUPABASE_URL 应为基础 URL，不包含 /rest/v1/
@@ -6,8 +6,8 @@ const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://tmyjefmykzquwofm
 const supabaseUrl = rawUrl.replace(/\/rest\/v1\/?$/, "") // 移除可能存在的 /rest/v1/ 后缀
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
 
-// 创建 Supabase 客户端
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// 创建 Supabase 浏览器客户端（使用 @supabase/ssr，session 存入 cookie，与 middleware 互通）
+export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey)
 
 // 数据库表类型定义 (对应 prompts_library 表)
 export interface PromptLibraryRow {
@@ -121,4 +121,161 @@ export async function fetchCaseStats(): Promise<{
     total: total || 0,
     highQuality: highQuality || 0,
   }
+}
+
+// ============ 通知系统 ============
+
+export interface NotificationItem {
+  id: string
+  userId: string
+  actorId: string
+  actorEmail: string
+  type: "like" | "favorite"
+  caseId: string
+  caseTitle: string
+  read: boolean
+  createdAt: string
+}
+
+/**
+ * 从 image_url 中提取上传者的 user_id
+ * URL 格式: https://xxx.supabase.co/storage/v1/object/public/images/{user_id}/{timestamp}.{ext}
+ */
+export function extractOwnerIdFromImageUrl(imageUrl: string): string | null {
+  if (!imageUrl) return null
+  try {
+    const match = imageUrl.match(/\/images\/([0-9a-f-]{36})\//)
+    return match?.[1] ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 查找案例的所有者 user_id
+ * 优先使用 submitted_by 字段，回退到从 image_url 提取
+ */
+export async function findCaseOwnerId(caseId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from("prompts_library")
+    .select("submitted_by, image_url")
+    .eq("id", caseId)
+    .maybeSingle()
+  if (!data) return null
+  if (data.submitted_by) return data.submitted_by
+  return extractOwnerIdFromImageUrl(data.image_url)
+}
+
+/**
+ * 创建通知
+ */
+export async function createNotification(params: {
+  userId: string
+  actorId: string
+  actorEmail: string
+  type: "like" | "favorite"
+  caseId: string
+  caseTitle: string
+}): Promise<{ success: boolean; error?: string }> {
+  // 不给自己发通知
+  if (params.userId === params.actorId) return { success: true }
+  const { error } = await supabase.from("notifications").insert({
+    user_id: params.userId,
+    actor_id: params.actorId,
+    actor_email: params.actorEmail,
+    type: params.type,
+    case_id: params.caseId,
+    case_title: params.caseTitle,
+  })
+  if (error) {
+    console.error("Failed to create notification:", error)
+    return { success: false, error: error.message }
+  }
+  return { success: true }
+}
+
+/**
+ * 获取当前用户的通知列表
+ */
+export async function fetchNotifications(userId: string): Promise<NotificationItem[]> {
+  const { data, error } = await supabase
+    .from("notifications")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(50)
+
+  if (error) {
+    console.error("Error fetching notifications:", error)
+    return []
+  }
+
+  return (data || []).map((row: any) => ({
+    id: row.id,
+    userId: row.user_id,
+    actorId: row.actor_id,
+    actorEmail: row.actor_email || "匿名用户",
+    type: row.type,
+    caseId: row.case_id,
+    caseTitle: row.case_title || "未知案例",
+    read: row.read ?? false,
+    createdAt: row.created_at,
+  }))
+}
+
+/**
+ * 标记所有通知为已读
+ */
+export async function markAllNotificationsRead(userId: string) {
+  await supabase
+    .from("notifications")
+    .update({ read: true })
+    .eq("user_id", userId)
+    .eq("read", false)
+}
+
+/**
+ * 获取未读通知数量
+ */
+export async function fetchUnreadCount(userId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from("notifications")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("read", false)
+  if (error) return 0
+  return count ?? 0
+}
+
+/**
+ * 删除案例（仅限案例所有者）
+ */
+export async function deleteCase(caseId: string, userId: string): Promise<{ success: boolean; error?: string }> {
+  // 验证归属权：检查 submitted_by 或 image_url
+  const { data: row } = await supabase
+    .from("prompts_library")
+    .select("submitted_by, image_url")
+    .eq("id", caseId)
+    .maybeSingle()
+
+  if (!row) return { success: false, error: "案例不存在" }
+
+  const ownerId = row.submitted_by || extractOwnerIdFromImageUrl(row.image_url)
+  if (ownerId !== userId) return { success: false, error: "无权删除此案例" }
+
+  // 删除关联的 likes 和 favorites
+  await Promise.all([
+    supabase.from("likes").delete().eq("item_id", caseId),
+    supabase.from("favorites").delete().eq("item_id", caseId),
+    supabase.from("notifications").delete().eq("case_id", caseId),
+  ])
+
+  // 删除案例记录
+  const { error } = await supabase
+    .from("prompts_library")
+    .delete()
+    .eq("id", caseId)
+
+  if (error) return { success: false, error: error.message }
+  return { success: true }
 }

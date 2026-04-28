@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Image from "next/image"
 import {
   Sheet,
@@ -13,8 +13,9 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ScoreProgress } from "@/components/score-progress"
 import { QualityBadge } from "@/components/quality-badge"
-import { Copy, Check, Sparkles, ExternalLink, MessageSquareQuote, ZoomIn } from "lucide-react"
+import { Copy, Check, Sparkles, ExternalLink, MessageSquareQuote, ZoomIn, Heart, Bookmark } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { supabase } from "@/lib/supabase"
 import type { CaseItem } from "@/lib/supabase"
 
 interface CaseDetailSheetProps {
@@ -26,7 +27,116 @@ interface CaseDetailSheetProps {
 export function CaseDetailSheet({ item, open, onOpenChange }: CaseDetailSheetProps) {
   const [copied, setCopied] = useState(false)
   const [imgError, setImgError] = useState(false)
+  const [liked, setLiked] = useState(false)
+  const [favorited, setFavorited] = useState(false)
+  const [likeCount, setLikeCount] = useState(0)
+  const [favoriteCount, setFavoriteCount] = useState(0)
+  const [actionLoading, setActionLoading] = useState(false)
   const { toast } = useToast()
+
+  // Fetch like/favorite status when item changes
+  const fetchStatus = useCallback(async () => {
+    if (!item) return
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const [likeRes, favRes, likeCountRes, favCountRes] = await Promise.all([
+      supabase.from("likes").select("id").eq("user_id", user.id).eq("item_id", item.id).maybeSingle(),
+      supabase.from("favorites").select("id").eq("user_id", user.id).eq("item_id", item.id).maybeSingle(),
+      supabase.from("likes").select("id", { count: "exact", head: true }).eq("item_id", item.id),
+      supabase.from("favorites").select("id", { count: "exact", head: true }).eq("item_id", item.id),
+    ])
+
+    setLiked(!!likeRes.data)
+    setFavorited(!!favRes.data)
+    setLikeCount(likeCountRes.count ?? 0)
+    setFavoriteCount(favCountRes.count ?? 0)
+  }, [item])
+
+  useEffect(() => {
+    if (open && item) {
+      fetchStatus()
+    }
+    // Reset on close
+    if (!open) {
+      setLiked(false)
+      setFavorited(false)
+      setLikeCount(0)
+      setFavoriteCount(0)
+    }
+  }, [open, item, fetchStatus])
+
+  if (!item) return null
+
+  const handleToggleLike = async () => {
+    if (actionLoading) return
+    setActionLoading(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      toast({ title: "请先登录", variant: "destructive" })
+      setActionLoading(false)
+      return
+    }
+
+    try {
+      const res = await fetch("/api/interact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "like", itemId: item.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        toast({ title: "点赞失败", description: data.error, variant: "destructive" })
+        setActionLoading(false)
+        return
+      }
+      if (data.toggled) {
+        setLiked(true)
+        setLikeCount((c) => c + 1)
+      } else {
+        setLiked(false)
+        setLikeCount((c) => Math.max(0, c - 1))
+      }
+    } catch (e: any) {
+      toast({ title: "点赞失败", description: e.message, variant: "destructive" })
+    }
+    setActionLoading(false)
+  }
+
+  const handleToggleFavorite = async () => {
+    if (actionLoading) return
+    setActionLoading(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      toast({ title: "请先登录", variant: "destructive" })
+      setActionLoading(false)
+      return
+    }
+
+    try {
+      const res = await fetch("/api/interact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "favorite", itemId: item.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        toast({ title: "收藏失败", description: data.error, variant: "destructive" })
+        setActionLoading(false)
+        return
+      }
+      if (data.toggled) {
+        setFavorited(true)
+        setFavoriteCount((c) => c + 1)
+      } else {
+        setFavorited(false)
+        setFavoriteCount((c) => Math.max(0, c - 1))
+      }
+    } catch (e: any) {
+      toast({ title: "收藏失败", description: e.message, variant: "destructive" })
+    }
+    setActionLoading(false)
+  }
 
   if (!item) return null
 
@@ -115,6 +225,34 @@ export function CaseDetailSheet({ item, open, onOpenChange }: CaseDetailSheetPro
                 查看原图
               </a>
             )}
+          </div>
+
+          {/* Like & Favorite */}
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handleToggleLike}
+              disabled={actionLoading}
+              className="flex items-center gap-1.5 rounded-full border border-slate-200 px-3 py-1.5 text-sm transition-all hover:bg-red-50 hover:border-red-200 disabled:opacity-50"
+            >
+              <Heart
+                className={`h-4 w-4 transition-colors ${liked ? "fill-red-500 text-red-500" : "text-slate-400"}`}
+              />
+              <span className={`text-xs font-medium ${liked ? "text-red-500" : "text-slate-500"}`}>
+                {likeCount > 0 ? likeCount : "点赞"}
+              </span>
+            </button>
+            <button
+              onClick={handleToggleFavorite}
+              disabled={actionLoading}
+              className="flex items-center gap-1.5 rounded-full border border-slate-200 px-3 py-1.5 text-sm transition-all hover:bg-amber-50 hover:border-amber-200 disabled:opacity-50"
+            >
+              <Bookmark
+                className={`h-4 w-4 transition-colors ${favorited ? "fill-amber-500 text-amber-500" : "text-slate-400"}`}
+              />
+              <span className={`text-xs font-medium ${favorited ? "text-amber-500" : "text-slate-500"}`}>
+                {favoriteCount > 0 ? favoriteCount : "收藏"}
+              </span>
+            </button>
           </div>
 
           {/* Scores */}
