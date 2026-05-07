@@ -7,7 +7,7 @@ import { CaseDetailSheet } from "./case-detail-sheet"
 import { QualityBadge } from "./quality-badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
-import { Loader2, ChevronDown } from "lucide-react"
+import { ChevronDown } from "lucide-react"
 import type { CaseItem } from "@/lib/mock-data"
 
 interface MasonryGridProps {
@@ -19,11 +19,18 @@ interface MasonryGridProps {
 
 const ITEMS_PER_PAGE = 20
 
+function getColumnCount(width: number) {
+  if (width >= 1280) return 4
+  if (width >= 768) return 3
+  if (width >= 475) return 2
+  return 1
+}
+
 export function MasonryGrid({ items, isLoading = false, viewMode = "grid", requireAuth }: MasonryGridProps) {
   const [selectedItem, setSelectedItem] = useState<CaseItem | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [displayedItems, setDisplayedItems] = useState<CaseItem[]>([])
-  const [loadingMore, setLoadingMore] = useState(false)
+  const [columnCount, setColumnCount] = useState(4)
 
   // 根据 id 去重，id 相同时保留首次出现的项；若无 id 则回退到 title 去重
   const uniqueItems = useMemo(() => {
@@ -40,17 +47,23 @@ export function MasonryGrid({ items, isLoading = false, viewMode = "grid", requi
     setDisplayedItems(uniqueItems.slice(0, ITEMS_PER_PAGE))
   }, [uniqueItems])
 
+  useEffect(() => {
+    const updateColumnCount = () => {
+      setColumnCount(getColumnCount(window.innerWidth))
+    }
+
+    updateColumnCount()
+    window.addEventListener("resize", updateColumnCount)
+
+    return () => window.removeEventListener("resize", updateColumnCount)
+  }, [])
+
   const loadMore = useCallback(() => {
-    if (loadingMore) return
     if (requireAuth && !requireAuth()) return
-    setLoadingMore(true)
-    setTimeout(() => {
-      const currentCount = displayedItems.length
-      const nextItems = uniqueItems.slice(0, currentCount + ITEMS_PER_PAGE)
-      setDisplayedItems(nextItems)
-      setLoadingMore(false)
-    }, 400)
-  }, [uniqueItems, displayedItems.length, loadingMore, requireAuth])
+    setDisplayedItems((currentItems) => {
+      return uniqueItems.slice(0, currentItems.length + ITEMS_PER_PAGE)
+    })
+  }, [uniqueItems, requireAuth])
 
   const handleItemClick = (item: CaseItem) => {
     if (requireAuth && !requireAuth()) return
@@ -58,13 +71,31 @@ export function MasonryGrid({ items, isLoading = false, viewMode = "grid", requi
     setSheetOpen(true)
   }
 
+  const masonryColumns = useMemo(() => {
+    const columns = Array.from({ length: columnCount }, () => [] as CaseItem[])
+
+    displayedItems.forEach((item, index) => {
+      columns[index % columnCount].push(item)
+    })
+
+    return columns
+  }, [columnCount, displayedItems])
+
   // Loading state
   if (isLoading) {
     return viewMode === "grid" ? (
-      <div className="columns-1 gap-4 xs:columns-2 sm:columns-2 md:columns-3 lg:columns-3 xl:columns-4">
-        {Array.from({ length: 12 }).map((_, i) => (
-          <div key={i} className="mb-4 break-inside-avoid">
-            <Skeleton className="h-48 w-full rounded-xl sm:h-56 md:h-64" />
+      <div
+        className="grid gap-4"
+        style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}
+      >
+        {Array.from({ length: columnCount }).map((_, columnIndex) => (
+          <div key={columnIndex} className="flex flex-col gap-4">
+            {Array.from({ length: 3 }).map((__, itemIndex) => (
+              <Skeleton
+                key={`${columnIndex}-${itemIndex}`}
+                className="h-48 w-full rounded-xl sm:h-56 md:h-64"
+              />
+            ))}
           </div>
         ))}
       </div>
@@ -115,10 +146,17 @@ export function MasonryGrid({ items, isLoading = false, viewMode = "grid", requi
     <>
       {viewMode === "grid" ? (
         /* Grid View */
-        <div className="columns-1 gap-4 xs:columns-2 sm:columns-2 md:columns-3 lg:columns-3 xl:columns-4">
-          {displayedItems.map((item) => (
-            <div key={item.id} className="mb-4 break-inside-avoid">
-              <ImageCard item={item} onClick={() => handleItemClick(item)} />
+        <div
+          className="grid items-start gap-4"
+          style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}
+        >
+          {masonryColumns.map((columnItems, columnIndex) => (
+            <div key={columnIndex} className="flex flex-col gap-4">
+              {columnItems.map((item) => (
+                <div key={item.id}>
+                  <ImageCard item={item} onClick={() => handleItemClick(item)} />
+                </div>
+              ))}
             </div>
           ))}
         </div>
@@ -183,23 +221,15 @@ export function MasonryGrid({ items, isLoading = false, viewMode = "grid", requi
             variant="outline"
             size="lg"
             onClick={loadMore}
-            disabled={loadingMore}
             className="gap-2 border-slate-200 bg-white px-8 text-slate-600 hover:bg-slate-50"
           >
-            {loadingMore ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                加载中...
-              </>
-            ) : (
-              <>
-                <ChevronDown className="h-4 w-4" />
-                加载更多
-                <span className="text-slate-400">
-                  ({displayedItems.length} / {uniqueItems.length})
-                </span>
-              </>
-            )}
+            <>
+              <ChevronDown className="h-4 w-4" />
+              加载更多
+              <span className="text-slate-400">
+                ({displayedItems.length} / {uniqueItems.length})
+              </span>
+            </>
           </Button>
         </div>
       )}
