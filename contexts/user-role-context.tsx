@@ -1,7 +1,8 @@
 "use client"
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
-import { supabase } from "@/lib/supabase"
+import { getClientSessionUser, supabase } from "@/lib/supabase"
+import type { User } from "@supabase/supabase-js"
 
 type UserRole = "admin" | "user" | null
 
@@ -22,8 +23,8 @@ export function UserRoleProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    async function fetchRole() {
-      const { data: { user } } = await supabase.auth.getUser()
+    async function fetchRole(authUser?: User | null) {
+      const user = authUser ?? await getClientSessionUser()
       if (!user) {
         setRole(null)
         setIsLoading(false)
@@ -47,8 +48,8 @@ export function UserRoleProvider({ children }: { children: ReactNode }) {
 
     fetchRole()
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
-      fetchRole()
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      fetchRole(session?.user ?? null)
     })
 
     return () => subscription.unsubscribe()

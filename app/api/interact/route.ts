@@ -1,58 +1,53 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { createServerClient } from "@supabase/ssr"
+import {
+  createSupabaseRouteClient,
+  hasSupabaseServiceRoleKey,
+  supabaseServiceRoleKey,
+  supabaseUrl,
+} from "@/lib/supabase-server"
 
-// Admin client bypasses RLS
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+// 1. Admin Client (绕过 RLS，用于处理通知)
+const supabaseAdmin = hasSupabaseServiceRoleKey
+  ? createClient(supabaseUrl, supabaseServiceRoleKey)
+  : null
 
-function createAuthClient(request: NextRequest) {
-  let response = NextResponse.next({ request })
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          )
-          response = NextResponse.next({ request })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          )
-        },
-      },
-    }
-  )
-  return supabase
+interface CaseOwnerRecord {
+  submitted_by: string | null
+  image_url: string | null
 }
 
 /**
- * 查找案例所有者
+ * 查找案例所有者逻辑
  */
-async function findCaseOwnerId(caseId: string): Promise<string | null> {
-  const { data } = await supabaseAdmin
+async function findCaseOwnerId(
+  caseId: string,
+  supabaseClient: { from: (table: string) => any }
+): Promise<string | null> {
+  const { data } = await supabaseClient
     .from("prompts_library")
     .select("submitted_by, image_url")
     .eq("id", caseId)
     .maybeSingle()
-  if (!data) return null
-  if (data.submitted_by) return data.submitted_by
-  // 从 image_url 提取 user_id
-  const match = data.image_url?.match(/\/images\/([0-9a-f-]{36})\//)
+  const caseOwner = data as CaseOwnerRecord | null
+  if (!caseOwner) return null
+  if (caseOwner.submitted_by) return caseOwner.submitted_by
+  const match = caseOwner.image_url?.match(/\/images\/([0-9a-f-]{36})\//)
   return match?.[1] ?? null
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const supabaseAuth = createAuthClient(request)
-    const { data: { user } } = await supabaseAuth.auth.getUser()
+    // 2. 用 request cookies 读取当前登录态，兼容 Next 16 route handlers
+    const { supabase: supabaseAuth } = createSupabaseRouteClient(request)
+    const {
+      data: { user },
+      error: userError,
+    } = await supabaseAuth.auth.getUser()
+
+    if (userError) {
+      console.error("Auth lookup failed:", userError.message)
+    }
 
     if (!user) {
       return NextResponse.json({ error: "未登录" }, { status: 401 })
@@ -71,59 +66,61 @@ export async function POST(request: NextRequest) {
 
     const table = action === "like" ? "likes" : "favorites"
 
-    // 检查是否已存在
-    const { data: existing } = await supabaseAdmin
+    // 3. 检查并操作数据库
+    const { data: existing, error: existingError } = await supabaseAuth
       .from(table)
       .select("id")
       .eq("user_id", user.id)
       .eq("item_id", itemId)
       .maybeSingle()
 
+    if (existingError) {
+      throw existingError
+    }
+
     if (existing) {
-      // 取消点赞/收藏
-      const { error } = await supabaseAdmin
+      const { error: delError } = await supabaseAuth
         .from(table)
         .delete()
-        .eq("user_id", user.id)
-        .eq("item_id", itemId)
-
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 })
-      }
+        .eq("id", existing.id)
+      if (delError) throw delError
       return NextResponse.json({ toggled: false })
     } else {
-      // 添加点赞/收藏
-      const { error } = await supabaseAdmin
+      const { error: insError } = await supabaseAuth
         .from(table)
         .insert({ user_id: user.id, item_id: itemId })
+      if (insError) throw insError
 
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 })
-      }
-
-      // 发送通知给案例所有者
-      const ownerId = await findCaseOwnerId(itemId)
-      if (ownerId && ownerId !== user.id) {
-        // 获取案例标题
-        const { data: caseData } = await supabaseAdmin
+      // 4. 异步发送通知
+      const ownerId = await findCaseOwnerId(itemId, supabaseAuth)
+      if (ownerId && ownerId !== user.id && supabaseAdmin) {
+        const { data: caseData } = await supabaseAuth
           .from("prompts_library")
           .select("title")
           .eq("id", itemId)
           .maybeSingle()
 
-        await supabaseAdmin.from("notifications").insert({
+        const { error: notificationError } = await supabaseAdmin
+          .from("notifications")
+          .insert({
           user_id: ownerId,
           actor_id: user.id,
           actor_email: user.email || "匿名用户",
           type: action,
           case_id: itemId,
           case_title: caseData?.title || "未知案例",
-        })
-      }
+          })
 
+        if (notificationError) {
+          console.error("通知发送失败:", notificationError.message)
+        }
+      } else if (!supabaseAdmin) {
+        console.warn("SUPABASE_SERVICE_ROLE_KEY 未配置，跳过通知写入")
+      }
       return NextResponse.json({ toggled: true })
     }
   } catch (e: any) {
+    console.error("API Error:", e.message)
     return NextResponse.json({ error: e.message || "服务器错误" }, { status: 500 })
   }
 }

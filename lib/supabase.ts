@@ -1,13 +1,31 @@
 import { createBrowserClient } from "@supabase/ssr"
+import type { User } from "@supabase/supabase-js"
+import { supabaseAnonKey, supabaseUrl } from "@/lib/supabase-config"
 
 // Supabase 配置
 // 注意：NEXT_PUBLIC_SUPABASE_URL 应为基础 URL，不包含 /rest/v1/
-const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://tmyjefmykzquwofmodur.supabase.co"
-const supabaseUrl = rawUrl.replace(/\/rest\/v1\/?$/, "") // 移除可能存在的 /rest/v1/ 后缀
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
 
 // 创建 Supabase 浏览器客户端（使用 @supabase/ssr，session 存入 cookie，与 middleware 互通）
 export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey)
+
+export async function getClientSessionUser(): Promise<User | null> {
+  try {
+    const {
+      data: { session },
+      error,
+    } = await supabase.auth.getSession()
+
+    if (error) {
+      console.error("Error reading auth session:", error.message)
+      return null
+    }
+
+    return session?.user ?? null
+  } catch (error) {
+    console.error("Error reading auth session:", error)
+    return null
+  }
+}
 
 // 数据库表类型定义 (对应 prompts_library 表)
 export interface PromptLibraryRow {

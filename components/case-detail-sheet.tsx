@@ -15,7 +15,7 @@ import { ScoreProgress } from "@/components/score-progress"
 import { QualityBadge } from "@/components/quality-badge"
 import { Copy, Check, Sparkles, ExternalLink, MessageSquareQuote, ZoomIn, Heart, Bookmark } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { supabase } from "@/lib/supabase"
+import { getClientSessionUser, supabase } from "@/lib/supabase"
 import type { CaseItem } from "@/lib/supabase"
 
 interface CaseDetailSheetProps {
@@ -37,8 +37,13 @@ export function CaseDetailSheet({ item, open, onOpenChange }: CaseDetailSheetPro
   // Fetch like/favorite status when item changes
   const fetchStatus = useCallback(async () => {
     if (!item) return
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+
+    const user = await getClientSessionUser()
+    if (!user) {
+      setLiked(false)
+      setFavorited(false)
+      return
+    }
 
     const [likeRes, favRes, likeCountRes, favCountRes] = await Promise.all([
       supabase.from("likes").select("id").eq("user_id", user.id).eq("item_id", item.id).maybeSingle(),
@@ -71,23 +76,23 @@ export function CaseDetailSheet({ item, open, onOpenChange }: CaseDetailSheetPro
   const handleToggleLike = async () => {
     if (actionLoading) return
     setActionLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      toast({ title: "请先登录", variant: "destructive" })
-      setActionLoading(false)
-      return
-    }
 
     try {
+      const user = await getClientSessionUser()
+      if (!user) {
+        toast({ title: "请先登录", variant: "destructive" })
+        return
+      }
+
       const res = await fetch("/api/interact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ action: "like", itemId: item.id }),
       })
       const data = await res.json()
       if (!res.ok) {
         toast({ title: "点赞失败", description: data.error, variant: "destructive" })
-        setActionLoading(false)
         return
       }
       if (data.toggled) {
@@ -99,30 +104,31 @@ export function CaseDetailSheet({ item, open, onOpenChange }: CaseDetailSheetPro
       }
     } catch (e: any) {
       toast({ title: "点赞失败", description: e.message, variant: "destructive" })
+    } finally {
+      setActionLoading(false)
     }
-    setActionLoading(false)
   }
 
   const handleToggleFavorite = async () => {
     if (actionLoading) return
     setActionLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      toast({ title: "请先登录", variant: "destructive" })
-      setActionLoading(false)
-      return
-    }
 
     try {
+      const user = await getClientSessionUser()
+      if (!user) {
+        toast({ title: "请先登录", variant: "destructive" })
+        return
+      }
+
       const res = await fetch("/api/interact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ action: "favorite", itemId: item.id }),
       })
       const data = await res.json()
       if (!res.ok) {
         toast({ title: "收藏失败", description: data.error, variant: "destructive" })
-        setActionLoading(false)
         return
       }
       if (data.toggled) {
@@ -134,8 +140,9 @@ export function CaseDetailSheet({ item, open, onOpenChange }: CaseDetailSheetPro
       }
     } catch (e: any) {
       toast({ title: "收藏失败", description: e.message, variant: "destructive" })
+    } finally {
+      setActionLoading(false)
     }
-    setActionLoading(false)
   }
 
   if (!item) return null
