@@ -8,6 +8,45 @@ import { supabaseAnonKey, supabaseUrl } from "@/lib/supabase-config"
 // 创建 Supabase 浏览器客户端（使用 @supabase/ssr，session 存入 cookie，与 middleware 互通）
 export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey)
 
+function isMissingRefreshTokenError(error: unknown) {
+  if (!error || typeof error !== "object") return false
+
+  const { message, name } = error as { message?: string; name?: string }
+  const normalizedMessage = message?.toLowerCase() ?? ""
+
+  return (
+    name === "AuthApiError" &&
+    normalizedMessage.includes("refresh token") &&
+    (normalizedMessage.includes("not found") || normalizedMessage.includes("invalid"))
+  )
+}
+
+function getSupabaseAuthStorageKey() {
+  try {
+    const projectRef = new URL(supabaseUrl).hostname.split(".")[0]
+    return projectRef ? `sb-${projectRef}-auth-token` : null
+  } catch {
+    return null
+  }
+}
+
+function clearClientAuthStorage() {
+  if (typeof window === "undefined") return
+
+  const authStorageKey = getSupabaseAuthStorageKey()
+  if (!authStorageKey) return
+
+  window.localStorage.removeItem(authStorageKey)
+  window.sessionStorage.removeItem(authStorageKey)
+
+  document.cookie.split(";").forEach((cookie) => {
+    const name = cookie.split("=")[0]?.trim()
+    if (!name || (name !== authStorageKey && !name.startsWith(`${authStorageKey}.`))) return
+
+    document.cookie = `${name}=; Max-Age=0; path=/; SameSite=Lax`
+  })
+}
+
 export async function getClientSessionUser(): Promise<User | null> {
   try {
     const {
@@ -16,13 +55,21 @@ export async function getClientSessionUser(): Promise<User | null> {
     } = await supabase.auth.getSession()
 
     if (error) {
-      console.error("Error reading auth session:", error.message)
+      if (isMissingRefreshTokenError(error)) {
+        clearClientAuthStorage()
+      } else {
+        console.warn("Error reading auth session:", error.message)
+      }
       return null
     }
 
     return session?.user ?? null
   } catch (error) {
-    console.error("Error reading auth session:", error)
+    if (isMissingRefreshTokenError(error)) {
+      clearClientAuthStorage()
+    } else {
+      console.warn("Error reading auth session:", error instanceof Error ? error.message : error)
+    }
     return null
   }
 }
@@ -64,6 +111,70 @@ export interface CaseItem {
   qualityTag: "优质案例" | "良好案例" | "普通案例" | "待改进"
   sourceLink?: string
   createdAt?: string
+  likedByCurrentUser?: boolean
+}
+
+interface FrontendCasePayload {
+  id: string
+  recordId?: string
+  title: string
+  status: "通过" | "未通过" | "待审核"
+  imageUrl: string
+  scene: string
+  prompt: string
+  textScore: number
+  logicScore: number
+  uiScore: number
+  physicScore: number
+  auditDetail: string
+  totalScore: number
+  qualityTag: "优质案例" | "良好案例" | "普通案例" | "待改进"
+  sourceLink?: string
+  createdAt?: string
+  isLiked?: boolean
+  likedByCurrentUser?: boolean
+}
+
+interface CasesApiPagination {
+  page: number
+  limit: number
+  total: number
+  totalPages: number
+  hasMore: boolean
+}
+
+interface CasesApiResponse {
+  cases?: FrontendCasePayload[]
+  pagination?: CasesApiPagination
+  error?: string
+}
+
+const CASES_API_PAGE_SIZE = 100
+
+export interface CasesPageResult {
+  cases: CaseItem[]
+  pagination: CasesApiPagination
+}
+
+function mapFrontendCasePayloadToCaseItem(payload: FrontendCasePayload): CaseItem {
+  return {
+    id: payload.recordId || payload.id,
+    title: payload.title,
+    auditStatus: payload.status,
+    imageUrl: payload.imageUrl,
+    category: payload.scene,
+    prompt: payload.prompt,
+    textScore: payload.textScore,
+    logicScore: payload.logicScore,
+    uiScore: payload.uiScore,
+    physicScore: payload.physicScore,
+    auditDetail: payload.auditDetail,
+    totalScore: payload.totalScore,
+    qualityTag: payload.qualityTag,
+    sourceLink: payload.sourceLink,
+    createdAt: payload.createdAt,
+    likedByCurrentUser: payload.likedByCurrentUser ?? payload.isLiked,
+  }
 }
 
 // 将图片字段补全为完整的 Supabase Storage Public URL
@@ -101,19 +212,52 @@ export function transformRowToCaseItem(row: PromptLibraryRow): CaseItem {
 
 // 获取所有案例 (默认按 total_score 降序)
 // TODO: 暂时移除 audit_status === '通过' 的过滤，方便核对全部数据
-export async function fetchApprovedCases(): Promise<CaseItem[]> {
-  const { data, error } = await supabase
-    .from("prompts_library")
-    .select("*")
-    .order("total_score", { ascending: false })
+export async function fetchApprovedCasesPage(page = 1, limit = CASES_API_PAGE_SIZE): Promise<CasesPageResult> {
+  try {
+    const response = await fetch(`/api/cases?page=${page}&limit=${limit}`, {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+    })
 
-  if (error) {
+    const payload = (await response.json()) as CasesApiResponse
+
+    if (!response.ok || !payload.pagination) {
+      console.error("Error fetching cases:", payload.error || response.statusText)
+      return {
+        cases: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          totalPages: 0,
+          hasMore: false,
+        },
+      }
+    }
+
+    return {
+      cases: (payload.cases || []).map(mapFrontendCasePayloadToCaseItem),
+      pagination: payload.pagination,
+    }
+  } catch (error) {
     console.error("Error fetching cases:", error)
-    return []
+    return {
+      cases: [],
+      pagination: {
+        page,
+        limit,
+        total: 0,
+        totalPages: 0,
+        hasMore: false,
+      },
+    }
   }
+}
 
-  console.log('Total fetched:', (data || []).length)
-  return (data || []).map(transformRowToCaseItem)
+export async function fetchApprovedCases(): Promise<CaseItem[]> {
+  const result = await fetchApprovedCasesPage(1, CASES_API_PAGE_SIZE)
+  return result.cases
 }
 
 // 获取案例总数统计

@@ -4,12 +4,14 @@ import { useState, useMemo, useEffect, useTransition } from "react"
 import { FilterBar } from "@/components/filter-bar"
 import { MasonryGrid } from "@/components/masonry-grid"
 import { type SortOrder } from "@/lib/mock-data"
-import { fetchApprovedCases, type CaseItem } from "@/lib/supabase"
+import { fetchApprovedCasesPage, type CaseItem } from "@/lib/supabase"
 import { Database, RefreshCw, Settings, LogIn, UserPlus, LogOut, User, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useUserRole } from "@/contexts/user-role-context"
 import { useAuth } from "@/hooks/use-auth"
 import Link from "next/link"
+
+const CASES_PAGE_SIZE = 100
 
 export default function HomePage() {
   const { isAdmin } = useUserRole()
@@ -29,19 +31,60 @@ export default function HomePage() {
   // Data state
   const [cases, setCases] = useState<CaseItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState(0)
+  const [hasMoreCases, setHasMoreCases] = useState(false)
+  const [totalCases, setTotalCases] = useState(0)
 
   const loadData = async () => {
     setIsLoading(true)
     setError(null)
     try {
-      const data = await fetchApprovedCases()
-      setCases(data)
+      const result = await fetchApprovedCasesPage(1, CASES_PAGE_SIZE)
+      setCases(result.cases)
+      setCurrentPage(result.pagination.page)
+      setHasMoreCases(result.pagination.hasMore)
+      setTotalCases(result.pagination.total)
     } catch (err) {
       setError("无法加载数据，请稍后重试")
       console.error("Failed to fetch cases:", err)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const loadMoreCases = async () => {
+    if (isLoading || isLoadingMore || !hasMoreCases) return
+
+    setIsLoadingMore(true)
+    setError(null)
+
+    try {
+      const nextPage = currentPage + 1
+      const result = await fetchApprovedCasesPage(nextPage, CASES_PAGE_SIZE)
+
+      setCases((currentCases) => {
+        const seenIds = new Set(currentCases.map((item) => item.id))
+        const merged = [...currentCases]
+
+        for (const item of result.cases) {
+          if (seenIds.has(item.id)) continue
+          seenIds.add(item.id)
+          merged.push(item)
+        }
+
+        return merged
+      })
+
+      setCurrentPage(result.pagination.page)
+      setHasMoreCases(result.pagination.hasMore)
+      setTotalCases(result.pagination.total)
+    } catch (err) {
+      setError("加载更多案例失败，请稍后重试")
+      console.error("Failed to load more cases:", err)
+    } finally {
+      setIsLoadingMore(false)
     }
   }
 
@@ -159,7 +202,7 @@ export default function HomePage() {
                 <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5">
                   <span className="text-xs text-slate-400">共</span>
                   <span className="text-sm font-semibold text-slate-800">
-                    {cases.length}
+                    {totalCases || cases.length}
                   </span>
                 </div>
                 {stats.highQuality > 0 && (
@@ -303,12 +346,9 @@ export default function HomePage() {
         {/* Stats Bar */}
         <div className="mb-6 flex flex-wrap items-center gap-4">
           <p className="text-sm text-slate-500">
-            共{" "}
+            已加载{" "}
             <span className="font-medium text-slate-800">{stats.total}</span>{" "}
-            个案例
-            <span className="ml-1 text-xs text-slate-400">
-              (仅显示审计通过)
-            </span>
+            / {totalCases || stats.total} 个案例
           </p>
           {stats.total > 0 && (
             <>
@@ -334,8 +374,12 @@ export default function HomePage() {
         <MasonryGrid
           items={uniqueCases}
           isLoading={isLoading || isPending}
+          isLoadingMore={isLoadingMore}
           viewMode={viewMode}
           requireAuth={requireAuth}
+          serverHasMore={hasMoreCases}
+          totalItems={totalCases || uniqueCases.length}
+          onLoadMore={loadMoreCases}
         />
       </div>
 

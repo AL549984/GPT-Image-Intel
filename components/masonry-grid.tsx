@@ -7,17 +7,22 @@ import { CaseDetailSheet } from "./case-detail-sheet"
 import { QualityBadge } from "./quality-badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { ChevronDown } from "lucide-react"
 import type { CaseItem } from "@/lib/mock-data"
 
 interface MasonryGridProps {
   items: CaseItem[]
   isLoading?: boolean
+  isLoadingMore?: boolean
   viewMode?: "grid" | "list"
   requireAuth?: () => boolean
+  serverHasMore?: boolean
+  totalItems?: number
+  onLoadMore?: () => void | Promise<void>
 }
 
-const ITEMS_PER_PAGE = 20
+const ITEMS_PER_PAGE = 40
 
 function getColumnCount(width: number) {
   if (width >= 1280) return 4
@@ -26,10 +31,19 @@ function getColumnCount(width: number) {
   return 1
 }
 
-export function MasonryGrid({ items, isLoading = false, viewMode = "grid", requireAuth }: MasonryGridProps) {
+export function MasonryGrid({
+  items,
+  isLoading = false,
+  isLoadingMore = false,
+  viewMode = "grid",
+  requireAuth,
+  serverHasMore = false,
+  totalItems,
+  onLoadMore,
+}: MasonryGridProps) {
   const [selectedItem, setSelectedItem] = useState<CaseItem | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
-  const [displayedItems, setDisplayedItems] = useState<CaseItem[]>([])
+  const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE)
   const [columnCount, setColumnCount] = useState(4)
 
   // 根据 id 去重，id 相同时保留首次出现的项；若无 id 则回退到 title 去重
@@ -44,8 +58,15 @@ export function MasonryGrid({ items, isLoading = false, viewMode = "grid", requi
   }, [items])
 
   useEffect(() => {
-    setDisplayedItems(uniqueItems.slice(0, ITEMS_PER_PAGE))
-  }, [uniqueItems])
+    setVisibleCount((currentVisibleCount) => {
+      if (uniqueItems.length === 0) return ITEMS_PER_PAGE
+      return Math.max(ITEMS_PER_PAGE, Math.min(currentVisibleCount, uniqueItems.length))
+    })
+  }, [uniqueItems.length])
+
+  const displayedItems = useMemo(() => {
+    return uniqueItems.slice(0, visibleCount)
+  }, [uniqueItems, visibleCount])
 
   useEffect(() => {
     const updateColumnCount = () => {
@@ -60,10 +81,17 @@ export function MasonryGrid({ items, isLoading = false, viewMode = "grid", requi
 
   const loadMore = useCallback(() => {
     if (requireAuth && !requireAuth()) return
-    setDisplayedItems((currentItems) => {
-      return uniqueItems.slice(0, currentItems.length + ITEMS_PER_PAGE)
-    })
-  }, [uniqueItems, requireAuth])
+
+    if (displayedItems.length < uniqueItems.length) {
+      setVisibleCount((currentVisibleCount) => currentVisibleCount + ITEMS_PER_PAGE)
+      return
+    }
+
+    if (serverHasMore && onLoadMore) {
+      setVisibleCount((currentVisibleCount) => currentVisibleCount + ITEMS_PER_PAGE)
+      void onLoadMore()
+    }
+  }, [displayedItems.length, uniqueItems.length, requireAuth, serverHasMore, onLoadMore])
 
   const handleItemClick = (item: CaseItem) => {
     if (requireAuth && !requireAuth()) return
@@ -133,7 +161,7 @@ export function MasonryGrid({ items, isLoading = false, viewMode = "grid", requi
     )
   }
 
-  const hasMore = displayedItems.length < uniqueItems.length
+  const hasMore = displayedItems.length < uniqueItems.length || serverHasMore
 
   const getScoreColor = (score: number) => {
     if (score >= 90) return "text-emerald-600"
@@ -225,9 +253,10 @@ export function MasonryGrid({ items, isLoading = false, viewMode = "grid", requi
           >
             <>
               <ChevronDown className="h-4 w-4" />
-              加载更多
+              {isLoadingMore ? <Spinner className="size-4" /> : null}
+              {isLoadingMore ? "加载中" : "加载更多"}
               <span className="text-slate-400">
-                ({displayedItems.length} / {uniqueItems.length})
+                ({displayedItems.length} / {totalItems || uniqueItems.length})
               </span>
             </>
           </Button>
@@ -237,7 +266,7 @@ export function MasonryGrid({ items, isLoading = false, viewMode = "grid", requi
       {/* All loaded hint */}
       {!hasMore && items.length > ITEMS_PER_PAGE && (
         <div className="flex items-center justify-center py-8">
-          <span className="text-sm text-slate-400">已加载全部 {items.length} 个案例</span>
+          <span className="text-sm text-slate-400">已加载全部 {totalItems || items.length} 个案例</span>
         </div>
       )}
 

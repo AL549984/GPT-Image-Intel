@@ -15,7 +15,7 @@ import { ScoreProgress } from "@/components/score-progress"
 import { QualityBadge } from "@/components/quality-badge"
 import { Copy, Check, Sparkles, ExternalLink, MessageSquareQuote, ZoomIn, Heart, Bookmark } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { getClientSessionUser, supabase } from "@/lib/supabase"
+import { getClientSessionUser } from "@/lib/supabase"
 import type { CaseItem } from "@/lib/supabase"
 
 interface CaseDetailSheetProps {
@@ -34,28 +34,40 @@ export function CaseDetailSheet({ item, open, onOpenChange }: CaseDetailSheetPro
   const [actionLoading, setActionLoading] = useState(false)
   const { toast } = useToast()
 
+  const applyInteractionStatus = (data: {
+    liked?: boolean
+    favorited?: boolean
+    likeCount?: number
+    favoriteCount?: number
+  }) => {
+    setLiked(Boolean(data.liked))
+    setFavorited(Boolean(data.favorited))
+    setLikeCount(data.likeCount ?? 0)
+    setFavoriteCount(data.favoriteCount ?? 0)
+  }
+
   // Fetch like/favorite status when item changes
   const fetchStatus = useCallback(async () => {
     if (!item) return
 
-    const user = await getClientSessionUser()
-    if (!user) {
+    try {
+      const res = await fetch(`/api/interact?itemId=${encodeURIComponent(item.id)}`, {
+        method: "GET",
+        credentials: "same-origin",
+        cache: "no-store",
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "无法读取互动状态")
+
+      applyInteractionStatus(data)
+    } catch (error) {
+      console.warn("Failed to load interaction status:", error)
       setLiked(false)
       setFavorited(false)
-      return
+      setLikeCount(0)
+      setFavoriteCount(0)
     }
-
-    const [likeRes, favRes, likeCountRes, favCountRes] = await Promise.all([
-      supabase.from("likes").select("id").eq("user_id", user.id).eq("item_id", item.id).maybeSingle(),
-      supabase.from("favorites").select("id").eq("user_id", user.id).eq("item_id", item.id).maybeSingle(),
-      supabase.from("likes").select("id", { count: "exact", head: true }).eq("item_id", item.id),
-      supabase.from("favorites").select("id", { count: "exact", head: true }).eq("item_id", item.id),
-    ])
-
-    setLiked(!!likeRes.data)
-    setFavorited(!!favRes.data)
-    setLikeCount(likeCountRes.count ?? 0)
-    setFavoriteCount(favCountRes.count ?? 0)
   }, [item])
 
   useEffect(() => {
@@ -95,13 +107,7 @@ export function CaseDetailSheet({ item, open, onOpenChange }: CaseDetailSheetPro
         toast({ title: "点赞失败", description: data.error, variant: "destructive" })
         return
       }
-      if (data.toggled) {
-        setLiked(true)
-        setLikeCount((c) => c + 1)
-      } else {
-        setLiked(false)
-        setLikeCount((c) => Math.max(0, c - 1))
-      }
+      applyInteractionStatus(data)
     } catch (e: any) {
       toast({ title: "点赞失败", description: e.message, variant: "destructive" })
     } finally {
@@ -131,13 +137,7 @@ export function CaseDetailSheet({ item, open, onOpenChange }: CaseDetailSheetPro
         toast({ title: "收藏失败", description: data.error, variant: "destructive" })
         return
       }
-      if (data.toggled) {
-        setFavorited(true)
-        setFavoriteCount((c) => c + 1)
-      } else {
-        setFavorited(false)
-        setFavoriteCount((c) => Math.max(0, c - 1))
-      }
+      applyInteractionStatus(data)
     } catch (e: any) {
       toast({ title: "收藏失败", description: e.message, variant: "destructive" })
     } finally {
